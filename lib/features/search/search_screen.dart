@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/cms_api_service.dart';
+import '../../core/services/analytics_service.dart';
 
 class SearchScreen extends StatefulWidget {
   final CmsApiService api;
@@ -26,7 +27,9 @@ class _SearchScreenState extends State<SearchScreen> {
     try {
       final res = await widget.api.semanticSearch(query);
       if (res.success && res.data != null) {
-        setState(() { _results = res.data as List; _loading = false; });
+        final results = res.data as List;
+        AnalyticsService.logSearch(query: query, results: results.length);
+        setState(() { _results = results; _loading = false; });
       }
     } catch (_) {
       setState(() { _results = []; _loading = false; });

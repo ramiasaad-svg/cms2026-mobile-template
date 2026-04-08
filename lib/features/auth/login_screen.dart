@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/services/analytics_service.dart';
 import '../../core/config/app_config.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -31,6 +32,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = false);
 
     if (success) {
+      AnalyticsService.logLogin();
       widget.onLoginSuccess();
     } else {
       setState(() => _error = 'Invalid credentials');

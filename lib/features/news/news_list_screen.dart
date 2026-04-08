@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/cms_api_service.dart';
+import '../../core/services/analytics_service.dart';
 import '../../shared/widgets/content_card.dart';
 
 class NewsListScreen extends StatefulWidget {
@@ -22,6 +23,7 @@ class _NewsListScreenState extends State<NewsListScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.logScreenView('NewsList');
     _loadData();
   }
 

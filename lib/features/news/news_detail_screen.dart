@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/api/cms_api_service.dart';
+import '../../core/services/analytics_service.dart';
 
 class NewsDetailScreen extends StatefulWidget {
   final CmsApiService api;
@@ -21,6 +22,8 @@ class _NewsDetailScreenState extends State<NewsDetailScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.logScreenView('NewsDetail');
+    AnalyticsService.logContentOpen(type: 'news', id: widget.newsId);
     _load();
   }
 

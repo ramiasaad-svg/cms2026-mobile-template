@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/api/cms_api_service.dart';
+import '../../core/services/analytics_service.dart';
 
 class ContactScreen extends StatefulWidget {
   final CmsApiService api;
@@ -28,6 +29,7 @@ class _ContactScreenState extends State<ContactScreen> {
         fullName: _name.text, email: _email.text, subject: _subject.text, message: _message.text,
       );
       if (res.success) {
+        AnalyticsService.logContactSubmit();
         setState(() { _sent = true; _sending = false; });
       } else {
         _showError(res.message ?? 'Failed to send');
