@@ -1,35 +1,60 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:go_router/go_router.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'core/config/app_config.dart';
 import 'core/api/api_client.dart';
 import 'core/api/cms_api_service.dart';
 import 'core/theme/app_theme.dart';
 import 'core/storage/cache_service.dart';
+import 'core/services/notification_service.dart';
+import 'core/services/version_check_service.dart';
+import 'core/services/auth_service.dart';
 import 'shared/widgets/dynamic_drawer.dart';
 import 'shared/widgets/generic_list_screen.dart';
+import 'shared/widgets/responsive_layout.dart';
 import 'features/home/home_screen.dart';
 import 'features/news/news_list_screen.dart';
 import 'features/news/news_detail_screen.dart';
 import 'features/contact/contact_screen.dart';
 import 'features/search/search_screen.dart';
+import 'features/auth/login_screen.dart';
+import 'features/update/update_required_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load config
+  // 1. Firebase
+  await Firebase.initializeApp();
+
+  // 2. Config
   final config = await AppConfig.load();
 
-  // Initialize services
+  // 3. Services
   final cache = CacheService();
   await cache.init();
-
   final apiClient = ApiClient(config.api);
   apiClient.setLanguage(config.languages.defaultLang);
-
   final cmsApi = CmsApiService(apiClient);
 
-  // Load menu (cache-first)
+  // 4. Auth
+  final auth = AuthService(apiClient);
+  await auth.init();
+
+  // 5. Push notifications
+  if (config.features.pushNotifications) {
+    final token = await NotificationService().init();
+    if (token != null) {
+      try { await cmsApi.registerDevice(deviceId: token, platform: 'flutter', pushToken: token); } catch (_) {}
+    }
+  }
+
+  // 6. Version check
+  final pkg = await PackageInfo.fromPlatform();
+  final updateInfo = await VersionCheckService(api: cmsApi, currentVersion: pkg.version).checkForUpdate();
+
+  // 7. Menu
   List<MenuItem> menuItems = [];
   try {
     final cached = cache.getCachedMenu();
@@ -44,11 +69,11 @@ void main() async {
       }
     }
   } catch (_) {
-    // Fallback: generate menu from config modules
     menuItems = config.modules.map((m) => MenuItem(title: m.name, route: m.route, icon: m.icon)).toList();
   }
 
-  runApp(CmsApp(config: config, cmsApi: cmsApi, apiClient: apiClient, cache: cache, menuItems: menuItems));
+  runApp(CmsApp(config: config, cmsApi: cmsApi, apiClient: apiClient, cache: cache,
+    auth: auth, menuItems: menuItems, updateInfo: updateInfo));
 }
 
 class CmsApp extends StatefulWidget {
@@ -56,107 +81,90 @@ class CmsApp extends StatefulWidget {
   final CmsApiService cmsApi;
   final ApiClient apiClient;
   final CacheService cache;
+  final AuthService auth;
   final List<MenuItem> menuItems;
+  final VersionInfo? updateInfo;
 
-  const CmsApp({super.key, required this.config, required this.cmsApi, required this.apiClient, required this.cache, required this.menuItems});
+  const CmsApp({super.key, required this.config, required this.cmsApi, required this.apiClient,
+    required this.cache, required this.auth, required this.menuItems, this.updateInfo});
 
   @override
   State<CmsApp> createState() => _CmsAppState();
 }
 
 class _CmsAppState extends State<CmsApp> {
-  late String _currentLang;
+  late String _lang;
   late GoRouter _router;
 
   @override
   void initState() {
     super.initState();
-    _currentLang = widget.config.languages.defaultLang;
+    _lang = widget.config.languages.defaultLang;
+    NotificationService().onNotificationTap = (route) { if (route != null) _router.go(route); };
     _router = _buildRouter();
   }
 
-  void _toggleLanguage() {
-    setState(() {
-      _currentLang = _currentLang == 'ar' ? 'en' : 'ar';
-      widget.apiClient.setLanguage(_currentLang);
-    });
+  void _toggleLang() {
+    setState(() { _lang = _lang == 'ar' ? 'en' : 'ar'; widget.apiClient.setLanguage(_lang); });
   }
 
-  GoRouter _buildRouter() {
-    return GoRouter(
-      initialLocation: '/',
+  GoRouter _buildRouter() => GoRouter(initialLocation: '/', routes: [
+    ShellRoute(
+      builder: (ctx, state, child) {
+        if (widget.updateInfo != null && widget.updateInfo!.isMandatory) {
+          return UpdateRequiredScreen(versionInfo: widget.updateInfo!, branding: widget.config.branding);
+        }
+        final isTablet = ResponsiveLayout.isTablet(ctx);
+        if (isTablet) {
+          return TabletShell(sideNav: _sideNav(), content: child);
+        }
+        return Scaffold(
+          drawer: DynamicDrawer(appName: widget.config.app.appName, logoUrl: widget.config.branding.logoUrl,
+            primaryColor: widget.config.branding.primary, menuItems: widget.menuItems,
+            currentLang: _lang, onLanguageToggle: _toggleLang),
+          body: child,
+        );
+      },
       routes: [
-        ShellRoute(
-          builder: (context, state, child) => _AppShell(
-            config: widget.config, menuItems: widget.menuItems,
-            currentLang: _currentLang, onLanguageToggle: _toggleLanguage, child: child,
-          ),
-          routes: [
-            GoRoute(path: '/', builder: (ctx, state) => HomeScreen(config: widget.config)),
-            GoRoute(path: '/news', builder: (ctx, state) => NewsListScreen(api: widget.cmsApi, apiBaseUrl: widget.config.api.baseUrl)),
-            GoRoute(path: '/news/:id', builder: (ctx, state) =>
-              NewsDetailScreen(api: widget.cmsApi, apiBaseUrl: widget.config.api.baseUrl, newsId: int.parse(state.pathParameters['id']!))),
-            GoRoute(path: '/pages', builder: (ctx, state) => GenericListScreen(title: 'Pages', routePrefix: '/pages',
-              fetchList: ({page = 1, pageSize = 10}) => widget.cmsApi.getPagesList(page: page, pageSize: pageSize), apiBaseUrl: widget.config.api.baseUrl)),
-            GoRoute(path: '/blog', builder: (ctx, state) => GenericListScreen(title: 'Blog', routePrefix: '/blog',
-              fetchList: ({page = 1, pageSize = 10}) => widget.cmsApi.getBlogList(page: page, pageSize: pageSize), apiBaseUrl: widget.config.api.baseUrl)),
-            GoRoute(path: '/gallery', builder: (ctx, state) => GenericListScreen(title: 'Gallery', routePrefix: '/gallery',
-              fetchList: ({page = 1, pageSize = 10}) => widget.cmsApi.getGalleryList(page: page, pageSize: pageSize), apiBaseUrl: widget.config.api.baseUrl)),
-            GoRoute(path: '/faq', builder: (ctx, state) => GenericListScreen(title: 'FAQ', routePrefix: '/faq',
-              fetchList: ({page = 1, pageSize = 50}) => widget.cmsApi.getFaqList(page: page, pageSize: pageSize), apiBaseUrl: widget.config.api.baseUrl)),
-            GoRoute(path: '/events', builder: (ctx, state) => GenericListScreen(title: 'Events', routePrefix: '/events',
-              fetchList: ({page = 1, pageSize = 10}) => widget.cmsApi.getSpeechesList(page: page, pageSize: pageSize), apiBaseUrl: widget.config.api.baseUrl)),
-            GoRoute(path: '/contact', builder: (ctx, state) => ContactScreen(api: widget.cmsApi)),
-            GoRoute(path: '/search', builder: (ctx, state) => SearchScreen(api: widget.cmsApi)),
-          ],
-        ),
+        GoRoute(path: '/', builder: (_, __) => HomeScreen(config: widget.config)),
+        GoRoute(path: '/news', builder: (_, __) => NewsListScreen(api: widget.cmsApi, apiBaseUrl: widget.config.api.baseUrl)),
+        GoRoute(path: '/news/:id', builder: (_, s) => NewsDetailScreen(api: widget.cmsApi, apiBaseUrl: widget.config.api.baseUrl, newsId: int.parse(s.pathParameters['id']!))),
+        GoRoute(path: '/pages', builder: (_, __) => GenericListScreen(title: 'Pages', routePrefix: '/pages', fetchList: ({page = 1, pageSize = 10}) => widget.cmsApi.getPagesList(page: page, pageSize: pageSize), apiBaseUrl: widget.config.api.baseUrl)),
+        GoRoute(path: '/blog', builder: (_, __) => GenericListScreen(title: 'Blog', routePrefix: '/blog', fetchList: ({page = 1, pageSize = 10}) => widget.cmsApi.getBlogList(page: page, pageSize: pageSize), apiBaseUrl: widget.config.api.baseUrl)),
+        GoRoute(path: '/gallery', builder: (_, __) => GenericListScreen(title: 'Gallery', routePrefix: '/gallery', fetchList: ({page = 1, pageSize = 10}) => widget.cmsApi.getGalleryList(page: page, pageSize: pageSize), apiBaseUrl: widget.config.api.baseUrl)),
+        GoRoute(path: '/faq', builder: (_, __) => GenericListScreen(title: 'FAQ', routePrefix: '/faq', fetchList: ({page = 1, pageSize = 50}) => widget.cmsApi.getFaqList(page: page, pageSize: pageSize), apiBaseUrl: widget.config.api.baseUrl)),
+        GoRoute(path: '/events', builder: (_, __) => GenericListScreen(title: 'Events', routePrefix: '/events', fetchList: ({page = 1, pageSize = 10}) => widget.cmsApi.getSpeechesList(page: page, pageSize: pageSize), apiBaseUrl: widget.config.api.baseUrl)),
+        GoRoute(path: '/contact', builder: (_, __) => ContactScreen(api: widget.cmsApi)),
+        GoRoute(path: '/search', builder: (_, __) => SearchScreen(api: widget.cmsApi)),
+        GoRoute(path: '/login', builder: (_, __) => LoginScreen(auth: widget.auth, branding: widget.config.branding, onLoginSuccess: () => _router.go('/'))),
       ],
-    );
-  }
+    ),
+  ]);
+
+  Widget _sideNav() => ListView(children: [
+    DrawerHeader(decoration: BoxDecoration(color: widget.config.branding.primary),
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        const Icon(Icons.apps, size: 40, color: Colors.white), const SizedBox(height: 8),
+        Text(widget.config.app.appName, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+      ])),
+    ...widget.menuItems.map((m) => ListTile(leading: Icon(m.iconData), title: Text(m.title), onTap: () => _router.go(m.route))),
+    const Divider(),
+    ListTile(leading: const Icon(Icons.search), title: const Text('Search'), onTap: () => _router.go('/search')),
+    ListTile(leading: const Icon(Icons.language), title: Text(_lang == 'ar' ? 'English' : 'العربية'), onTap: _toggleLang),
+  ]);
 
   @override
   Widget build(BuildContext context) {
     final theme = AppTheme(widget.config.branding);
-    final isRtl = widget.config.languages.isRtl(_currentLang);
-
     return MaterialApp.router(
       title: widget.config.app.appName,
-      theme: theme.lightTheme,
-      darkTheme: theme.darkTheme,
-      themeMode: theme.themeMode,
-      routerConfig: _router,
-      locale: Locale(_currentLang),
+      theme: theme.lightTheme, darkTheme: theme.darkTheme, themeMode: theme.themeMode,
+      routerConfig: _router, locale: Locale(_lang),
       supportedLocales: widget.config.languages.supported.map((l) => Locale(l)),
-      builder: (context, child) => Directionality(
-        textDirection: isRtl ? TextDirection.rtl : TextDirection.ltr,
-        child: child!,
-      ),
+      builder: (ctx, child) => Directionality(
+        textDirection: widget.config.languages.isRtl(_lang) ? TextDirection.rtl : TextDirection.ltr,
+        child: child!),
       debugShowCheckedModeBanner: false,
-    );
-  }
-}
-
-class _AppShell extends StatelessWidget {
-  final AppConfig config;
-  final List<MenuItem> menuItems;
-  final String currentLang;
-  final VoidCallback onLanguageToggle;
-  final Widget child;
-
-  const _AppShell({required this.config, required this.menuItems, required this.currentLang, required this.onLanguageToggle, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      drawer: DynamicDrawer(
-        appName: config.app.appName,
-        logoUrl: config.branding.logoUrl,
-        primaryColor: config.branding.primary,
-        menuItems: menuItems,
-        currentLang: currentLang,
-        onLanguageToggle: onLanguageToggle,
-      ),
-      body: child,
     );
   }
 }
