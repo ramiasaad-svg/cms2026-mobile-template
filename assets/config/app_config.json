@@ -1,0 +1,50 @@
+{
+  "app": {
+    "appId": "com.cms2026.mobile",
+    "appName": "CMS2026",
+    "appNameAr": "نظام إدارة المحتوى",
+    "versionName": "1.0.0",
+    "versionCode": 1
+  },
+  "api": {
+    "baseUrl": "https://api.example.com/api",
+    "mobileEndpoint": "/mobile",
+    "timeout": 30000,
+    "retryCount": 3
+  },
+  "branding": {
+    "primaryColor": "#2f7995",
+    "secondaryColor": "#1d586f",
+    "accentColor": "#ff9800",
+    "themeMode": "light",
+    "logoUrl": "assets/images/logo.png",
+    "splashUrl": "assets/images/splash.png",
+    "fontFamily": "Cairo"
+  },
+  "modules": [
+    { "name": "news", "enabled": true, "icon": "newspaper", "route": "/news", "displayOrder": 1 },
+    { "name": "pages", "enabled": true, "icon": "description", "route": "/pages", "displayOrder": 2 },
+    { "name": "gallery", "enabled": true, "icon": "photo_library", "route": "/gallery", "displayOrder": 3 },
+    { "name": "blog", "enabled": true, "icon": "edit_note", "route": "/blog", "displayOrder": 4 },
+    { "name": "contact", "enabled": true, "icon": "mail", "route": "/contact", "displayOrder": 5 },
+    { "name": "faq", "enabled": true, "icon": "help", "route": "/faq", "displayOrder": 6 },
+    { "name": "events", "enabled": true, "icon": "event", "route": "/events", "displayOrder": 7 }
+  ],
+  "languages": {
+    "default": "ar",
+    "supported": ["ar", "en"],
+    "rtlLanguages": ["ar"]
+  },
+  "firebase": {
+    "projectId": "",
+    "senderId": ""
+  },
+  "features": {
+    "pushNotifications": true,
+    "darkMode": true,
+    "offlineMode": true,
+    "semanticSearch": true,
+    "recommendations": true,
+    "inAppFeedback": true
+  }
+}
